@@ -6,7 +6,7 @@ Questo repository contiene la documentazione e lo script di automazione per tras
 
 ## 📋 Contenuto del Repository
 
-- **[`MANUALE_INSTALLAZIONE.md`](MANUALE_INSTALLAZIONE.md)**: Guida dettagliata passo-passo che copre l'intero processo, dalla creazione della chiavetta USB avviabile, configurazione BIOS/UEFI, installazione di Ubuntu Server, gestione del layout tastiera, SSH, firewall (`ufw`), ottimizzazione energetica (`TLP`), fino all'installazione e configurazione avanzata di Hermes Agent (gateway systemd, Docker, Tailscale).
+- **[`MANUALE_INSTALLAZIONE.md`](MANUALE_INSTALLAZIONE.md)**: Guida dettagliata passo-passo che copre l'intero processo, dalla creazione della chiavetta USB avviabile, configurazione BIOS/UEFI, installazione di Ubuntu Server, gestione del layout tastiera, SSH, firewall (`ufw`), ottimizzazione energetica (`TLP`), fino all'installazione, architettura di esecuzione e modello di sicurezza a doppia barriera di Hermes Agent (gateway systemd, matrice capacità, Docker, Tailscale).
 - **[`install-server-hermes.sh`](install-server-hermes.sh)**: Script Bash automatizzato ed **idempotente** (eseguibile più volte in sicurezza) che applica le configurazioni di base del server e installa Hermes Agent e le sue dipendenze.
 
 ---
@@ -82,7 +82,8 @@ Il manuale include:
 4. Risoluzione dei problemi di layout tastiera (`/etc/default/keyboard`)
 5. Configurazione SSH e Firewall (`ufw`)
 6. Configurazione avanzata di Hermes Agent, `agent-workspace` e servizio systemd (`hermes-gateway.service`)
-7. Integrazione opzionale con Docker e Tailscale per accesso remoto sicuro
+7. Architettura di esecuzione sull'host, modello di sicurezza a doppia barriera e matrice delle capacità
+8. Integrazione opzionale con Docker e Tailscale per accesso remoto sicuro
 
 ---
 
