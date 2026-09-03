@@ -289,6 +289,29 @@ hermes setup
 hermes model
 ```
 
+### 11.1 Integrazione e verifica con Ollama (Modelli Locali)
+
+Se Hermes Agent è stato configurato per utilizzare **Ollama** come provider di modelli locali:
+
+1. **Verifica dello stato del servizio Ollama sul server**:
+   ```bash
+   systemctl status ollama             # Controlla se il servizio Ollama è attivo
+   ollama list                          # Elenca i modelli scaricati localmente
+   ```
+
+2. **Verifica del modello attivo in Hermes**:
+   ```bash
+   hermes model                         # Mostra e seleziona il modello corrente
+   hermes config                        # Ispeziona la configurazione completa
+   ```
+
+3. **Verifica dell'esecuzione in tempo reale**:
+   Quando invii un messaggio al bot su Telegram o via CLI, puoi verificare in tempo reale se Ollama sta elaborando la richiesta eseguendo sul server:
+   ```bash
+   ollama ps                            # Mostra i modelli attualmente caricati in RAM/VRAM
+   journalctl --user -u hermes-gateway.service -f   # Segue i log del gateway in tempo reale
+   ```
+
 ---
 
 ## 12. Configurazione di Hermes Agent
