@@ -32,7 +32,12 @@ I comandi sono generici e vanno adattati sostituendo i placeholder tra `< >`:
 12. [Configurazione di Hermes Agent](#12-configurazione-di-hermes-agent)
 13. [Hermes come servizio systemd (Gateway)](#13-hermes-come-servizio-systemd-gateway)
 14. [Architettura di esecuzione e modello di sicurezza](#14-architettura-di-esecuzione-e-modello-di-sicurezza)
-15. [Docker (opzionale)](#15-docker-opzionale)
+15. [Docker, Hermes WebUI e Ollama](#15-docker-hermes-webui-e-ollama)
+    - 15.1 [Installazione Docker Engine](#151-installazione-docker-engine)
+    - 15.2 [Configurazione e Bind Mount del Workspace in Hermes WebUI](#152-configurazione-e-bind-mount-del-workspace-in-hermes-webui)
+    - 15.3 [Rete Docker e collegamento con Ollama (`hermes-net`)](#153-rete-docker-e-collegamento-con-ollama-hermes-net)
+    - 15.4 [Configurazione Provider Ollama in `config.yaml`](#154-configurazione-provider-ollama-in-configyaml)
+    - 15.5 [Risoluzione dei problemi e diagnostica (Troubleshooting)](#155-risoluzione-dei-problemi-e-diagnostica-troubleshooting)
 16. [Tailscale (opzionale, accesso remoto)](#16-tailscale-opzionale-accesso-remoto)
 17. [Verifica finale del sistema](#17-verifica-finale-del-sistema)
 18. [Appendice — comandi utili di manutenzione](#18-appendice--comandi-utili-di-manutenzione)
@@ -240,8 +245,11 @@ sudo ufw status
 sudo ufw allow ssh
 ```
 
-Se in seguito esporrai altri servizi (es. un server web), ricordati di aprire
-anche le relative porte con `sudo ufw allow <porta>/tcp`.
+Se in seguito esporrai altri servizi (es. Hermes WebUI sulla porta 8787), apri la porta corrispondente:
+
+```bash
+sudo ufw allow 8787/tcp
+```
 
 ---
 
@@ -291,13 +299,19 @@ hermes model
 
 ### 11.1 Integrazione e verifica con Ollama (Modelli Locali)
 
-Se Hermes Agent è stato configurato per utilizzare **Ollama** come provider di modelli locali:
+Se Hermes Agent o Hermes WebUI utilizzano **Ollama** per modelli locali:
 
-1. **Verifica dello stato del servizio Ollama sul server**:
-   ```bash
-   systemctl status ollama             # Controlla se il servizio Ollama è attivo
-   ollama list                          # Elenca i modelli scaricati localmente
-   ```
+1. **Verifica dello stato di Ollama**:
+   - Se eseguito come servizio systemd sull'host:
+     ```bash
+     systemctl status ollama
+     ollama list
+     ```
+   - Se eseguito in un container Docker (`ollama`):
+     ```bash
+     docker ps | grep ollama
+     docker exec -it ollama ollama list
+     ```
 
 2. **Verifica del modello attivo in Hermes**:
    ```bash
@@ -306,10 +320,10 @@ Se Hermes Agent è stato configurato per utilizzare **Ollama** come provider di 
    ```
 
 3. **Verifica dell'esecuzione in tempo reale**:
-   Quando invii un messaggio al bot su Telegram o via CLI, puoi verificare in tempo reale se Ollama sta elaborando la richiesta eseguendo sul server:
+   Quando invii una richiesta ad Hermes, puoi verificare in tempo reale se Ollama sta elaborando il prompt:
    ```bash
    ollama ps                            # Mostra i modelli attualmente caricati in RAM/VRAM
-   journalctl --user -u hermes-gateway.service -f   # Segue i log del gateway in tempo reale
+   journalctl --user -u hermes-gateway.service -f   # Segue i log del gateway host
    ```
 
 ---
@@ -376,7 +390,7 @@ hermes --cli               # Avvia la CLI classica
 hermes -z "PROMPT"         # Esecuzione one-shot, utile per script
 hermes --safe-mode         # Modalità sicura per diagnosticare problemi
 hermes backup              # Backup di configurazione e dati
-hermes update               # Aggiorna Hermes all'ultima versione
+hermes update               # Aggiorna Hermes Agent
 ```
 
 ---
@@ -500,27 +514,125 @@ sudo -n id
 ```
 
 Possibili esiti:
-- **`sudo: a password is required`** (Esito standard): conferma che `sudo` richiede la password interattiva dell'utente e che NOPASSWD non è attivo.
+- **`sudo: a password is required`** (Esito standard): conferma che `sudo` richiede la password interattiva dell'utente e che NOPASSWD del sistema è attivo.
 - **`Command blocked...`**: il Safety Hook di Hermes ha intercettato e bloccato l'uso del comando `sudo`.
 - **`uid=0(root) ...`**: i privilegi root non interattivi risultano già attivi per l'utente.
 
 ---
 
-## 15. Docker (opzionale)
+## 15. Docker, Hermes WebUI e Ollama
 
-Se prevedi di far gestire container a Hermes (es. per isolare l'esecuzione di
-comandi), installa Docker Engine seguendo il metodo ufficiale Docker per
-Ubuntu, quindi verifica l'installazione:
+Se desideri utilizzare l'interfaccia web **Hermes WebUI** (in esecuzione dentro un container Docker) e/o collegare l'agente a **Ollama** tramite rete container, questa sezione spiega come configurare correttamente i volumi, le reti e i file di configurazione.
+
+### 15.1 Installazione Docker Engine
+
+Se non hai ancora installato Docker, puoi farlo mediante lo script di installazione automatizzato oppure seguendo la guida ufficiale Docker per Ubuntu:
 
 ```bash
-docker version
-docker ps
-docker images
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
 ```
 
-> Si consiglia di installare Docker **dopo** aver verificato che il resto del
-> sistema funzioni correttamente, per non introdurre variabili multiple da
-> diagnosticare insieme.
+Disconnettiti e ricollegati via SSH per applicare l'appartenenza al gruppo `docker`.
+
+---
+
+### 15.2 Configurazione e Bind Mount del Workspace in Hermes WebUI
+
+Hermes WebUI viene eseguito all'interno di un container Docker isolato. Per impostazione predefinita, il container possiede una directory `/workspace` interna e un mount verso la configurazione dell'utente (`/home/<utente>/.hermes`).
+
+**Problema comune**: Se avviato lasciando solo il mount di `~/.hermes`, la directory `/workspace` interna al container risulta **vuota** e Hermes WebUI non può accedere ai file o ai progetti presenti sulla macchina host (es. `/home/<utente>/agent-workspace`).
+
+**Soluzione**: Ricreare il container esplicitando **sia** il volume di configurazione **sia** il bind mount del workspace host verso `/workspace`:
+
+```bash
+# Se il container è già attivo, fermalo e rimuovilo:
+docker stop hermes-webui
+docker rm hermes-webui
+
+# Riavvia il container includendo il doppio bind mount (-v):
+docker run -d \
+  --name hermes-webui \
+  --restart unless-stopped \
+  -p 8787:8787 \
+  -e HERMES_WEBUI_STATE_DIR=/home/hermeswebui/.hermes \
+  -v /home/<utente>/.hermes:/home/hermeswebui/.hermes \
+  -v /home/<utente>/agent-workspace:/workspace \
+  ghcr.io/nesquena/hermes-webui:latest
+```
+
+> **Verifica del mount**:
+> ```bash
+> docker exec -it hermes-webui ls -la /workspace
+> ```
+> Dovresti ora visualizzare tutti i file e i repository clonato presenti in `~/agent-workspace` sull'host.
+
+---
+
+### 15.3 Rete Docker e collegamento con Ollama (`hermes-net`)
+
+Quando Hermes WebUI ed Ollama sono entrambi in container Docker, l'indirizzo `127.0.0.1` all'interno del container `hermes-webui` si riferisce a `hermes-webui` stesso, non a Ollama.
+
+Per far comunicare i container tramite il risolutore DNS interno di Docker, occorre collegarli alla medesima rete Docker (ad es. `hermes-net`).
+
+1. **Creazione della rete Docker** (se non esistente):
+   ```bash
+   docker network create hermes-net 2>/dev/null || true
+   ```
+
+2. **Collegamento dei container alla rete**:
+   ```bash
+   docker network connect hermes-net hermes-webui 2>/dev/null || true
+   docker network connect hermes-net ollama 2>/dev/null || true
+   ```
+
+3. **Verifica della connettività DNS tra container**:
+   ```bash
+   docker exec hermes-webui sh -c 'curl -s http://ollama:11434/v1/models'
+   ```
+   Un esito positivo restituirà il JSON con la lista dei modelli Ollama disponibili, ad esempio:
+   ```json
+   {"object":"list","data":[{"id":"qwen2.5:3b","object":"model","created":...}]}
+   ```
+
+---
+
+### 15.4 Configurazione Provider Ollama in `config.yaml`
+
+Nel file di configurazione `~/.hermes/config.yaml`, definisci il provider custom per Ollama impostando il `base_url` verso l'endpoint della rete Docker (`http://ollama:11434/v1` per l'ambiente container, oppure `http://127.0.0.1:11434/v1` se Ollama gira nativamente sull'host):
+
+```yaml
+model:
+  default: qwen2.5:3b
+  provider: custom:ollama
+  base_url: http://ollama:11434/v1
+  api_mode: chat_completions
+
+providers:
+  custom:ollama:
+    name: Ollama Locale
+    base_url: http://ollama:11434/v1
+    default_model: qwen2.5:3b
+```
+
+---
+
+### 15.5 Risoluzione dei problemi e diagnostica (Troubleshooting)
+
+#### 1. Il workspace in WebUI appare vuoto (`/workspace`)
+- **Causa**: Il container `hermes-webui` è stato avviato senza la flag `-v /home/<utente>/agent-workspace:/workspace`.
+- **Diagnosi**: `docker inspect hermes-webui --format '{{json .Mounts}}'` mostra solo `~/.hermes`.
+- **Soluzione**: Esegui `docker stop hermes-webui && docker rm hermes-webui`, poi riavvia il container includendo il bind mount del workspace come mostrato nella [Sezione 15.2](#152-configurazione-e-bind-mount-del-workspace-in-hermes-webui).
+
+#### 2. Errore HTTP 404 / Connection Refused verso Ollama (`127.0.0.1:11434`)
+- **Causa**: Dentro il container WebUI, `127.0.0.1` indica il container stesso.
+- **Soluzione**: Connetti entrambi i container alla rete `hermes-net` (`docker network connect hermes-net hermes-webui`) e usa `base_url: http://ollama:11434/v1` in `config.yaml`.
+
+#### 3. Errore `HTTP 404: model '3b' not found` o parsing errato dei modelli con `:`
+- **Causa**: Se il nome del modello viene separato erroneamente rispetto al provider (es. scindendo `qwen2.5:3b` in `qwen2.5` e `3b`), l'agente potrebbe inviare solo `3b` all'API Ollama.
+- **Verifica**: Hermes Agent gestisce correttamente i nomi di modello con il carattere `:` quando il provider è specificato esplicitamente come `custom:ollama` o tramite il prefisso provider.
+- **Soluzione**: Assicurati che in `~/.hermes/config.yaml` il blocco `providers.custom:ollama` sia definito correttamente con `default_model: qwen2.5:3b` e che `model.provider` sia impostato a `custom:ollama`.
 
 ---
 
@@ -569,6 +681,7 @@ hermes --version
 | `hermes config` | Mostra la configurazione corrente di Hermes |
 | `hermes update` | Aggiorna Hermes Agent |
 | `hermes backup` | Crea un backup di configurazione/dati di Hermes |
+| `docker logs -f hermes-webui` | Segue i log del container Hermes WebUI |
 
 > ⚠️ Comandi come `rm -rf`, `dd`, `mkfs`, `fdisk`, `parted`, modifiche a
 > `/etc` o alle unità systemd sono potenzialmente distruttivi: eseguili solo
