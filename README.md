@@ -6,7 +6,7 @@ Questo repository contiene la documentazione e lo script di automazione per tras
 
 ## 📋 Contenuto del Repository
 
-- **[`MANUALE_INSTALLAZIONE.md`](MANUALE_INSTALLAZIONE.md)**: Guida dettagliata passo-passo che copre l'intero processo, dalla creazione della chiavetta USB avviabile, configurazione BIOS/UEFI, installazione di Ubuntu Server, gestione del layout tastiera, SSH, firewall (`ufw`), ottimizzazione energetica (`TLP`), fino all'installazione, architettura di esecuzione e modello di sicurezza a doppia barriera di Hermes Agent (gateway systemd, matrice capacità, Docker, Tailscale).
+- **[`MANUALE_INSTALLAZIONE.md`](MANUALE_INSTALLAZIONE.md)**: Guida dettagliata passo-passo che copre l'intero processo, dalla creazione della chiavetta USB avviabile, configurazione BIOS/UEFI, installazione di Ubuntu Server, gestione del layout tastiera, SSH, firewall (`ufw`), ottimizzazione energetica (`TLP`), fino all'installazione, architettura di esecuzione e modello di sicurezza a doppia barriera di Hermes Agent (gateway systemd, matrice capacità, Docker, Hermes WebUI con bind mount del workspace, rete `hermes-net` con Ollama, provider `custom:ollama`, Tailscale).
 - **[`install-server-hermes.sh`](install-server-hermes.sh)**: Script Bash automatizzato ed **idempotente** (eseguibile più volte in sicurezza) che applica le configurazioni di base del server e installa Hermes Agent e le sue dipendenze.
 
 ---
@@ -83,7 +83,7 @@ Il manuale include:
 5. Configurazione SSH e Firewall (`ufw`)
 6. Configurazione avanzata di Hermes Agent, `agent-workspace` e servizio systemd (`hermes-gateway.service`)
 7. Architettura di esecuzione sull'host, modello di sicurezza a doppia barriera e matrice delle capacità
-8. Integrazione opzionale con Docker e Tailscale per accesso remoto sicuro
+8. Integrazione opzionale con Docker, Hermes WebUI (con bind mount di `/workspace`), rete container `hermes-net`, configurazione di Ollama locale (`custom:ollama`), risoluzione dei problemi di parsing dei modelli (`qwen2.5:3b`) e Tailscale per accesso remoto sicuro
 
 ---
 
@@ -91,7 +91,7 @@ Il manuale include:
 
 Una volta completata l'installazione (automatica o manuale), procedi con la configurazione di Hermes Agent:
 
-1. **Configura il provider AI** (es. OpenAI, Anthropic, OpenRouter):
+1. **Configura il provider AI** (es. OpenAI, Anthropic, OpenRouter, o Ollama locale):
    ```bash
    hermes setup
    # oppure per scegliere/cambiare modello:
