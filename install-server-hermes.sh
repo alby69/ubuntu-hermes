@@ -134,7 +134,7 @@ apt update
 apt upgrade -y
 
 log "Fase 2: installazione strumenti di base (idempotente)"
-apt install -y curl git htop tmux unzip xz-utils
+apt install -y curl git gh htop tmux unzip xz-utils
 
 # ------------------------------------------------------------------
 # Fase 3 — SSH

@@ -32,15 +32,24 @@ I comandi sono generici e vanno adattati sostituendo i placeholder tra `< >`:
 12. [Configurazione di Hermes Agent](#12-configurazione-di-hermes-agent)
 13. [Hermes come servizio systemd (Gateway)](#13-hermes-come-servizio-systemd-gateway)
 14. [Architettura di esecuzione e modello di sicurezza](#14-architettura-di-esecuzione-e-modello-di-sicurezza)
-15. [Docker, Hermes WebUI e Ollama](#15-docker-hermes-webui-e-ollama)
-    - 15.1 [Installazione Docker Engine](#151-installazione-docker-engine)
-    - 15.2 [Configurazione e Bind Mount del Workspace in Hermes WebUI](#152-configurazione-e-bind-mount-del-workspace-in-hermes-webui)
-    - 15.3 [Rete Docker e collegamento con Ollama (`hermes-net`)](#153-rete-docker-e-collegamento-con-ollama-hermes-net)
-    - 15.4 [Configurazione Provider Ollama in `config.yaml`](#154-configurazione-provider-ollama-in-configyaml)
-    - 15.5 [Risoluzione dei problemi e diagnostica (Troubleshooting)](#155-risoluzione-dei-problemi-e-diagnostica-troubleshooting)
-16. [Tailscale (opzionale, accesso remoto)](#16-tailscale-opzionale-accesso-remoto)
-17. [Verifica finale del sistema](#17-verifica-finale-del-sistema)
-18. [Appendice — comandi utili di manutenzione](#18-appendice--comandi-utili-di-manutenzione)
+15. [Integrazione con GitHub](#15-integrazione-con-github)
+    - 15.1 [Autenticazione tramite GitHub CLI (`gh`)](#151-autenticazione-tramite-github-cli-gh)
+    - 15.2 [Clonazione di repository nel workspace di Hermes](#152-clonazione-di-repository-nel-workspace-di-hermes)
+    - 15.3 [Integrazione GitHub con backend Docker (`docker_forward_env`)](#153-integrazione-github-con-backend-docker-docker_forward_env)
+    - 15.4 [Integrazione avanzata via MCP GitHub (`mcp_servers`)](#154-integrazione-avanzata-via-mcp-github-mcp_servers)
+16. [Sviluppo remoto con VS Code (Remote - SSH)](#16-sviluppo-remoto-con-vs-code-remote---ssh)
+    - 16.1 [Configurazione di VS Code Remote - SSH](#161-configurazione-di-vs-code-remote---ssh)
+    - 16.2 [Workflow operativo con Hermes e VS Code](#162-workflow-operativo-con-hermes-e-vs-code)
+    - 16.3 [Spostamento della finestra terminale/panel sul lato destro](#163-spostamento-della-finestra-terminalepanel-sul-lato-destro)
+17. [Docker, Hermes WebUI e Ollama](#17-docker-hermes-webui-e-ollama)
+    - 17.1 [Installazione Docker Engine](#171-installazione-docker-engine)
+    - 17.2 [Configurazione e Bind Mount del Workspace in Hermes WebUI](#172-configurazione-e-bind-mount-del-workspace-in-hermes-webui)
+    - 17.3 [Rete Docker e collegamento con Ollama (`hermes-net`)](#173-rete-docker-e-collegamento-con-ollama-hermes-net)
+    - 17.4 [Configurazione Provider Ollama in `config.yaml`](#174-configurazione-provider-ollama-in-configyaml)
+    - 17.5 [Risoluzione dei problemi e diagnostica (Troubleshooting)](#175-risoluzione-dei-problemi-e-diagnostica-troubleshooting)
+18. [Tailscale (opzionale, accesso remoto)](#18-tailscale-opzionale-accesso-remoto)
+19. [Verifica finale del sistema](#19-verifica-finale-del-sistema)
+20. [Appendice — comandi utili di manutenzione](#20-appendice--comandi-utili-di-manutenzione)
 
 ---
 
@@ -520,7 +529,184 @@ Possibili esiti:
 
 ---
 
-## 15. Docker, Hermes WebUI e Ollama
+## 15. Integrazione con GitHub
+
+Hermes Agent si integra nativamente con **GitHub** per analizzare repository, trovare bug, scrivere test, generare Pull Request e aggiornare la documentazione.
+
+### 15.1 Autenticazione tramite GitHub CLI (`gh`)
+
+Il metodo più semplice e raccomandato per collegare Hermes a GitHub è utilizzare la CLI ufficiale **GitHub CLI (`gh`)**. Hermes la rileva automaticamente e riutilizza le credenziali già configurate sul server.
+
+1. **Verifica installazione di GitHub CLI**:
+   ```bash
+   gh --version
+   ```
+   Se non è presente, installalo tramite APT:
+   ```bash
+   sudo apt update
+   sudo apt install -y gh
+   ```
+
+2. **Autenticazione**:
+   Esegui il comando interattivo per autenticarti:
+   ```bash
+   gh auth login
+   ```
+   Seleziona le seguenti opzioni durante il prompt:
+   - **What account do you want to log into?** `GitHub.com`
+   - **What is your preferred protocol for Git operations?** `HTTPS`
+   - **How would you like to authenticate GitHub CLI?** `Login with a web browser`
+
+   Copia il codice monouso mostrato nel terminale e completa l'autenticazione dal browser web.
+
+3. **Verifica dello stato di autenticazione**:
+   ```bash
+   gh auth status
+   ```
+
+---
+
+### 15.2 Clonazione di repository nel workspace di Hermes
+
+Sposta la sessione nella directory del workspace ed effettua la clonazione dei repository su cui intendi lavorare:
+
+```bash
+mkdir -p ~/agent-workspace
+cd ~/agent-workspace
+
+# Clonazione tramite GitHub CLI (raccomandato):
+gh repo clone TUO_USERNAME/NOME_REPO
+
+# Oppure tramite Git classico:
+git clone https://github.com/TUO_USERNAME/NOME_REPO.git
+```
+
+Avvia quindi Hermes direttamente all'interno della directory del progetto:
+
+```bash
+cd ~/agent-workspace/NOME_REPO
+hermes
+```
+
+Esempi di prompt operativi da inviare ad Hermes:
+- *"Analizza la struttura di questo progetto e descrivi l'architettura."*
+- *"Trova bug o potenziali vulnerabilità di sicurezza nel codice."*
+- *"Scrivi i test unitari per i moduli mancanti."*
+- *"Crea una Pull Request con le modifiche apportate."*
+- *"Aggiorna la documentazione e i commenti nel codice."*
+
+---
+
+### 15.3 Integrazione GitHub con backend Docker (`docker_forward_env`)
+
+Se la configurazione di Hermes utilizza il backend Docker (`terminal.backend: docker`), il container isolato necessita dell'inoltro del token GitHub personalizzato per interagire con le API.
+
+1. **Impostazione del token tramite Hermes CLI**:
+   ```bash
+   hermes config set GITHUB_TOKEN github_pat_xxxxxxxxxxxx
+   ```
+
+2. **Inoltro della variabile d'ambiente al container**:
+   Nel file `~/.hermes/config.yaml`, aggiungi `GITHUB_TOKEN` alla lista `docker_forward_env`:
+
+   ```yaml
+   terminal:
+     backend: docker
+     docker_forward_env:
+       - GITHUB_TOKEN
+   ```
+
+---
+
+### 15.4 Integrazione avanzata via MCP GitHub (`mcp_servers`)
+
+Hermes supporta il protocollo **MCP (Model Context Protocol)** e può interfacciarsi con il server MCP di GitHub per interagire in modo strutturato con Issue, Pull Request e file del repository.
+
+Aggiungi il seguente blocco nel file `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+```
+
+---
+
+## 16. Sviluppo remoto con VS Code (Remote - SSH)
+
+L'integrazione consigliata per lavorare da una postazione client (Windows, macOS o Linux) verso il server Ubuntu dedicato con Hermes è l'uso di **Visual Studio Code** unito all'estensione **Remote - SSH**.
+
+### 16.1 Configurazione di VS Code Remote - SSH
+
+1. **Installazione dell'estensione**:
+   - Apri VS Code sul tuo PC client.
+   - Vai alla scheda Estensioni (`Ctrl+Shift+X`).
+   - Cerca **Remote - SSH** (identificatore: `ms-vscode-remote.remote-ssh` di Microsoft) e clicca su **Installa**.
+
+2. **Configurazione dell'host SSH (`~/.ssh/config`)**:
+   Sul tuo PC client, modifica o crea il file `~/.ssh/config` per memorizzare l'accesso rapido al server:
+
+   ```config
+   Host hermes
+       HostName <ip-server>
+       User <utente>
+   ```
+
+3. **Connessione al server**:
+   - In VS Code premi `Ctrl+Shift+P` per aprire la Command Palette.
+   - Digita e seleziona **Remote-SSH: Connect to Host...**.
+   - Seleziona **hermes** (oppure digita `<utente>@<ip-server>`).
+   - Scegli il sistema operativo di destinazione (`Linux`).
+
+   > **Troubleshooting**: Se la voce "Remote-SSH: Connect to Host" non appare nella Command Palette, assicurati che l'estensione ufficiale `ms-vscode-remote.remote-ssh` sia abilitata e non stia usando VSCodium privo dell'Open VSX Marketplace idoneo.
+
+4. **Apertura del Workspace**:
+   Una volta connesso, seleziona **File → Open Folder...** ed apri la cartella del progetto:
+   `/home/<utente>/agent-workspace/NOME_REPO`
+
+---
+
+### 16.2 Workflow operativo con Hermes e VS Code
+
+Una volta aperto il progetto in VS Code via Remote SSH, apri il terminale integrato (`Ctrl+```):
+
+```bash
+cd ~/agent-workspace/NOME_REPO
+hermes
+```
+
+Con questo setup ottieni il miglior ambiente operativo:
+- **VS Code**: per navigare l'albero dei file, editare codice con syntax highlighting e sfruttare il Git grafico.
+- **Hermes (nel terminale affiancato)**: per analizzare codice, generare refactoring, eseguire test e creare commit.
+
+---
+
+### 16.3 Spostamento della finestra terminale/panel sul lato destro
+
+Per ottimizzare lo spazio visivo (particolarmente utile su monitor widescreen), puoi spostare il pannello del terminale dalla parte inferiore alla parte destra dello schermo:
+
+- **Metodo rapido**: Clic destro sulla scheda **TERMINAL** o sull'intestazione del pannello in basso e seleziona **Move Panel Right / Sposta pannello a destra**.
+- **Da Command Palette**:
+  1. Premi `Ctrl+Shift+P`.
+  2. Digita e seleziona **View: Move Panel Right**.
+
+Layout risultante in VS Code:
+
+```
+┌──────────────────────────────┬──────────────┐
+│                              │ TERMINALE    │
+│        Editor Codice         │              │
+│                              │ $ hermes     │
+│                              │              │
+└──────────────────────────────┴──────────────┘
+```
+
+---
+
+## 17. Docker, Hermes WebUI e Ollama
 
 Se desideri utilizzare l'interfaccia web **Hermes WebUI** (in esecuzione dentro un container Docker) e/o collegare l'agente a **Ollama** tramite rete container, questa sezione spiega come configurare correttamente i volumi, le reti e i file di configurazione.
 
